@@ -1,0 +1,67 @@
+name: Check PETSc releases for wavein
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: wavein-petsc-release-check
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      needs_build: ${{ steps.release.outputs.needs_build }}
+      petsc_version: ${{ steps.release.outputs.petsc_version }}
+      image_revision: ${{ steps.release.outputs.image_revision }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check latest stable release
+        id: release
+        run: |
+          set -euo pipefail
+          tags="$(curl --fail --silent --show-error --retry 4 \
+            'https://gitlab.com/api/v4/projects/petsc%2Fpetsc/repository/tags?order_by=version&sort=desc&per_page=100')"
+          version="$(jq -er \
+            '[.[] | select(.name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))][0].name[1:]' \
+            <<<"${tags}")"
+          image="$(jq -er '.image_name' containers/petsc/image-config.json)"
+          revision="$(jq -er '.image_revision' containers/petsc/image-config.json)"
+          owner="$(tr '[:upper:]' '[:lower:]' <<<"${GITHUB_REPOSITORY_OWNER}")"
+
+          needs_build=false
+          for variant in debug release; do
+            tag="ghcr.io/${owner}/${image}:${version}-r${revision}-${variant}"
+            docker buildx imagetools inspect "${tag}" >/dev/null 2>&1 || needs_build=true
+          done
+
+          echo "needs_build=${needs_build}" >>"${GITHUB_OUTPUT}"
+          echo "petsc_version=${version}" >>"${GITHUB_OUTPUT}"
+          echo "image_revision=${revision}" >>"${GITHUB_OUTPUT}"
+          echo "PETSc ${version}: build needed = ${needs_build}." >>"${GITHUB_STEP_SUMMARY}"
+
+  build:
+    needs: detect
+    if: needs.detect.outputs.needs_build == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/build-petsc.yml
+    with:
+      petsc_version: ${{ needs.detect.outputs.petsc_version }}
+      image_revision: ${{ needs.detect.outputs.image_revision }}
+    secrets: inherit

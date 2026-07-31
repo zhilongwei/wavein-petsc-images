@@ -1,0 +1,35 @@
+name: Validate wavein PETSc images
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate configuration
+        run: |
+          jq -e '
+            (.image_name | type == "string" and test("^[a-z0-9][a-z0-9._-]*$")) and
+            (.image_revision | type == "number" and . >= 1 and . == floor)
+          ' containers/petsc/image-config.json >/dev/null
+      - uses: docker/setup-buildx-action@v4
+      - name: Check Dockerfile without building PETSc
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: containers/petsc/Dockerfile
+          target: image
+          call: check
+          build-args: |
+            PETSC_VERSION=3.25.4
+            PETSC_GIT_SHA=0000000000000000000000000000000000000000
+            PETSC_VARIANT=release

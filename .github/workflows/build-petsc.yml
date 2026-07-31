@@ -1,0 +1,119 @@
+name: Build wavein PETSc images
+
+on:
+  workflow_call:
+    inputs:
+      petsc_version:
+        required: true
+        type: string
+      image_revision:
+        required: false
+        default: "1"
+        type: string
+  workflow_dispatch:
+    inputs:
+      petsc_version:
+        description: PETSc version without v
+        required: true
+        default: "3.25.4"
+        type: string
+      image_revision:
+        description: Image recipe revision
+        required: true
+        default: "1"
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: wavein-petsc-${{ inputs.petsc_version }}-r${{ inputs.image_revision }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      git_sha: ${{ steps.release.outputs.git_sha }}
+      image_name: ${{ steps.release.outputs.image_name }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify PETSc release
+        id: release
+        env:
+          VERSION: ${{ inputs.petsc_version }}
+          REVISION: ${{ inputs.image_revision }}
+        run: |
+          set -euo pipefail
+          [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "${REVISION}" =~ ^[1-9][0-9]*$ ]]
+
+          image="$(jq -er '.image_name' containers/petsc/image-config.json)"
+          [[ "${image}" =~ ^[a-z0-9][a-z0-9._-]*$ ]]
+          tag="$(curl --fail --silent --show-error --retry 4 \
+            "https://gitlab.com/api/v4/projects/petsc%2Fpetsc/repository/tags/v${VERSION}")"
+          sha="$(jq -er '.commit.id | select(test("^[0-9a-f]{40}$"))' <<<"${tag}")"
+          owner="$(tr '[:upper:]' '[:lower:]' <<<"${GITHUB_REPOSITORY_OWNER}")"
+
+          echo "git_sha=${sha}" >>"${GITHUB_OUTPUT}"
+          echo "image_name=ghcr.io/${owner}/${image}" >>"${GITHUB_OUTPUT}"
+
+  build:
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [debug, release]
+    env:
+      IMAGE_TAG: ${{ needs.resolve.outputs.image_name }}:${{ inputs.petsc_version }}-r${{ inputs.image_revision }}-${{ matrix.variant }}
+      CACHE_TAG: ${{ needs.resolve.outputs.image_name }}:buildcache-${{ matrix.variant }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check existing image
+        id: check
+        run: |
+          if docker buildx imagetools inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
+            echo "exists=true" >>"${GITHUB_OUTPUT}"
+            echo "${IMAGE_TAG} already exists." >>"${GITHUB_STEP_SUMMARY}"
+          else
+            echo "exists=false" >>"${GITHUB_OUTPUT}"
+          fi
+
+      - name: Build, test, and push
+        if: steps.check.outputs.exists != 'true'
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: containers/petsc/Dockerfile
+          target: image
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE_TAG }}
+          build-args: |
+            PETSC_VERSION=${{ inputs.petsc_version }}
+            PETSC_GIT_SHA=${{ needs.resolve.outputs.git_sha }}
+            PETSC_VARIANT=${{ matrix.variant }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ inputs.petsc_version }}-r${{ inputs.image_revision }}-${{ matrix.variant }}
+            org.wavein.petsc.git-sha=${{ needs.resolve.outputs.git_sha }}
+          cache-from: type=registry,ref=${{ env.CACHE_TAG }}
+          cache-to: type=registry,ref=${{ env.CACHE_TAG }},mode=max,image-manifest=true,oci-mediatypes=true
+
+      - name: Summarize
+        if: steps.check.outputs.exists != 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "Published \`${IMAGE_TAG}\` at \`${DIGEST}\`." >>"${GITHUB_STEP_SUMMARY}"
