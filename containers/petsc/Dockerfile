@@ -11,7 +11,7 @@ ARG PETSC_GIT_SHA
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-        build-essential ca-certificates cmake git ninja-build pkg-config \
+        build-essential ca-certificates cmake gfortran git ninja-build pkg-config \
         python3 python3-packaging
 
 WORKDIR /src
@@ -41,13 +41,15 @@ RUN case "${PETSC_VARIANT}" in \
         --with-scalar-type=real \
         --with-precision=double \
         --with-shared-libraries=1 \
-        --with-fc=0 \
         --with-cxx-dialect=C++17 \
         --download-mpich \
-        --download-f2cblaslapack \
+        --download-fblaslapack \
         --download-hdf5 \
+        --download-scalapack \
+        --download-mumps \
         --download-superlu \
-        COPTFLAGS="${optflags}" CXXOPTFLAGS="${optflags}" && \
+        COPTFLAGS="${optflags}" CXXOPTFLAGS="${optflags}" \
+        FOPTFLAGS="${optflags}" && \
     make -j"$(nproc)" PETSC_DIR=/src/petsc PETSC_ARCH="arch-linux-${PETSC_VARIANT}" all && \
     make PETSC_DIR=/src/petsc PETSC_ARCH="arch-linux-${PETSC_VARIANT}" install
 
@@ -58,8 +60,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-        build-essential ca-certificates cmake git libeigen3-dev \
-        ninja-build pkg-config python3
+        build-essential ca-certificates cmake git libeigen3-dev libgfortran5 \
+        ninja-build pkg-config python3 valgrind
 
 ENV PETSC_DIR=/opt/petsc \
     PATH=/opt/petsc/bin:${PATH} \
@@ -84,6 +86,7 @@ RUN case "${PETSC_VARIANT}" in \
     cmake --build /tmp/wavein-petsc-smoke-build --parallel && \
     cmake --install /tmp/wavein-petsc-smoke-build --prefix /usr/local && \
     mpiexec -n 1 /usr/local/bin/wavein-petsc-smoke && \
+    valgrind --version && \
     rm -rf /tmp/wavein-petsc-smoke /tmp/wavein-petsc-smoke-build \
         /tmp/wavein-petsc-smoke.h5
 

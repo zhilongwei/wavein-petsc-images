@@ -3,13 +3,39 @@
 #include <petscksp.h>
 #include <petscviewerhdf5.h>
 
-int main(int argc, char **argv)
+static PetscErrorCode CheckSolver(Mat A, MatSolverType solver)
 {
-  Mat A;
   Vec b, x;
   KSP ksp;
   PC pc;
   PetscReal error;
+
+  PetscFunctionBeginUser;
+  PetscCall(MatCreateVecs(A, &x, &b));
+  PetscCall(VecSet(b, 2.0));
+  PetscCall(KSPCreate(PETSC_COMM_WORLD, &ksp));
+  PetscCall(KSPSetOperators(ksp, A, A));
+  PetscCall(KSPSetType(ksp, KSPPREONLY));
+  PetscCall(KSPGetPC(ksp, &pc));
+  PetscCall(PCSetType(pc, PCLU));
+  PetscCall(PCFactorSetMatSolverType(pc, solver));
+  PetscCall(KSPSolve(ksp, b, x));
+
+  PetscCall(VecShift(x, -1.0));
+  PetscCall(VecNorm(x, NORM_INFINITY, &error));
+  PetscCheck(error < 1.0e-12, PETSC_COMM_WORLD, PETSC_ERR_PLIB,
+             "%s error: %g", solver, static_cast<double>(error));
+
+  PetscCall(KSPDestroy(&ksp));
+  PetscCall(VecDestroy(&x));
+  PetscCall(VecDestroy(&b));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+int main(int argc, char **argv)
+{
+  Mat A;
+  Vec output;
   PetscMPIInt size;
 
   PetscCall(PetscInitialize(&argc, &argv, nullptr, nullptr));
@@ -23,32 +49,20 @@ int main(int argc, char **argv)
   PetscCall(MatAssemblyBegin(A, MAT_FINAL_ASSEMBLY));
   PetscCall(MatAssemblyEnd(A, MAT_FINAL_ASSEMBLY));
 
-  PetscCall(MatCreateVecs(A, &x, &b));
-  PetscCall(VecSet(b, 2.0));
-  PetscCall(KSPCreate(PETSC_COMM_WORLD, &ksp));
-  PetscCall(KSPSetOperators(ksp, A, A));
-  PetscCall(KSPSetType(ksp, KSPPREONLY));
-  PetscCall(KSPGetPC(ksp, &pc));
-  PetscCall(PCSetType(pc, PCLU));
-  PetscCall(PCFactorSetMatSolverType(pc, MATSOLVERSUPERLU));
-  PetscCall(KSPSolve(ksp, b, x));
-
-  PetscCall(VecShift(x, -1.0));
-  PetscCall(VecNorm(x, NORM_INFINITY, &error));
-  PetscCheck(error < 1.0e-12, PETSC_COMM_WORLD, PETSC_ERR_PLIB,
-             "SuperLU error: %g", static_cast<double>(error));
+  PetscCall(CheckSolver(A, MATSOLVERSUPERLU));
+  PetscCall(CheckSolver(A, MATSOLVERMUMPS));
 
   PetscViewer viewer;
-  PetscCall(PetscObjectSetName(reinterpret_cast<PetscObject>(b), "rhs"));
+  PetscCall(MatCreateVecs(A, &output, nullptr));
+  PetscCall(VecSet(output, 2.0));
+  PetscCall(PetscObjectSetName(reinterpret_cast<PetscObject>(output), "rhs"));
   PetscCall(PetscViewerHDF5Open(PETSC_COMM_WORLD,
                                 "/tmp/wavein-petsc-smoke.h5",
                                 FILE_MODE_WRITE, &viewer));
-  PetscCall(VecView(b, viewer));
+  PetscCall(VecView(output, viewer));
   PetscCall(PetscViewerDestroy(&viewer));
 
-  PetscCall(KSPDestroy(&ksp));
-  PetscCall(VecDestroy(&x));
-  PetscCall(VecDestroy(&b));
+  PetscCall(VecDestroy(&output));
   PetscCall(MatDestroy(&A));
   PetscCall(PetscFinalize());
   return 0;

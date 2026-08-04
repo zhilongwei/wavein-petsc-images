@@ -8,7 +8,7 @@ on:
         type: string
       image_revision:
         required: false
-        default: "1"
+        default: "2"
         type: string
   workflow_dispatch:
     inputs:
@@ -20,7 +20,7 @@ on:
       image_revision:
         description: Image recipe revision
         required: true
-        default: "1"
+        default: "2"
         type: string
 
 permissions:

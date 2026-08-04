@@ -3,12 +3,13 @@
 Debug and release PETSc development images for `linux/amd64`.
 
 ```text
-ghcr.io/zhilongwei/wavein-petsc:3.25.4-r1-debug
-ghcr.io/zhilongwei/wavein-petsc:3.25.4-r1-release
+ghcr.io/zhilongwei/wavein-petsc:3.25.4-r2-debug
+ghcr.io/zhilongwei/wavein-petsc:3.25.4-r2-release
 ```
 
 Both images contain real, double-precision PETSc with MPICH,
-f2cblaslapack, HDF5, and SuperLU. PETSc is installed in `/opt/petsc` and
+Fortran BLAS/LAPACK, HDF5, ScaLAPACK, MUMPS, and SuperLU. Valgrind is also
+installed for memory diagnostics. PETSc is installed in `/opt/petsc`, and
 applications can use it through CMake or pkg-config.
 
 ## Publish
@@ -24,9 +25,9 @@ schedules may need re-enabling after 60 days without repository activity.
 ## Use
 
 ```bash
-docker pull ghcr.io/zhilongwei/wavein-petsc:3.25.4-r1-release
+docker pull ghcr.io/zhilongwei/wavein-petsc:3.25.4-r2-release
 docker run --rm \
-  ghcr.io/zhilongwei/wavein-petsc:3.25.4-r1-release \
+  ghcr.io/zhilongwei/wavein-petsc:3.25.4-r2-release \
   mpiexec -n 1 wavein-petsc-smoke
 ```
 
@@ -34,7 +35,14 @@ For a shell with the current directory mounted:
 
 ```bash
 docker run --rm -it -v "$PWD:/workspace" -w /workspace \
-  ghcr.io/zhilongwei/wavein-petsc:3.25.4-r1-debug
+  ghcr.io/zhilongwei/wavein-petsc:3.25.4-r2-debug
+```
+
+To check an MPI application for definite memory leaks in the debug image:
+
+```bash
+mpiexec -n 1 valgrind --leak-check=full --show-leak-kinds=definite \
+  --errors-for-leak-kinds=definite --error-exitcode=1 ./your-application
 ```
 
 Increase `image_revision` in `containers/petsc/image-config.json` when the
