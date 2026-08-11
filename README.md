@@ -1,26 +1,15 @@
-# wavein PETSc images
+# WaveIn PETSc images
 
-Debug and release PETSc development images for `linux/amd64`.
+Debug and release PETSc development images for `linux/amd64`:
 
 ```text
 ghcr.io/zhilongwei/wavein-petsc:3.25.4-r2-debug
 ghcr.io/zhilongwei/wavein-petsc:3.25.4-r2-release
 ```
 
-Both images contain real, double-precision PETSc with MPICH,
-Fortran BLAS/LAPACK, HDF5, ScaLAPACK, MUMPS, and SuperLU. Valgrind is also
-installed for memory diagnostics. PETSc is installed in `/opt/petsc`, and
-applications can use it through CMake or pkg-config.
-
-## Publish
-
-1. Push this repository to GitHub.
-2. Run **Build wavein PETSc images** from the Actions tab.
-3. Make the `wavein-petsc` package public after its first build.
-
-The weekly release check builds only missing debug or release tags. Versioned
-tags are not overwritten, and build caches are kept in GHCR. Public-repository
-schedules may need re-enabling after 60 days without repository activity.
+Both contain real, double-precision PETSc with MPICH, Fortran BLAS/LAPACK,
+HDF5, ScaLAPACK, MUMPS, SuperLU, and Valgrind. PETSc is installed in
+`/opt/petsc` and exposed through CMake and pkg-config.
 
 ## Use
 
@@ -31,19 +20,19 @@ docker run --rm \
   mpiexec -n 1 wavein-petsc-smoke
 ```
 
-For a shell with the current directory mounted:
+For an interactive shell:
 
 ```bash
 docker run --rm -it -v "$PWD:/workspace" -w /workspace \
   ghcr.io/zhilongwei/wavein-petsc:3.25.4-r2-debug
 ```
 
-To check an MPI application for definite memory leaks in the debug image:
+## Publish
 
-```bash
-mpiexec -n 1 valgrind --leak-check=full --show-leak-kinds=definite \
-  --errors-for-leak-kinds=definite --error-exitcode=1 ./your-application
-```
+The weekly workflow builds missing tags; the manual workflow builds a requested
+PETSc version and image revision. Versioned tags are never overwritten. Increment
+`image_revision` in `containers/petsc/image-config.json` when the recipe changes.
 
-Increase `image_revision` in `containers/petsc/image-config.json` when the
-image recipe changes.
+Configure the repository secret `WAVEIN_DISPATCH_TOKEN` with a fine-grained token
+limited to `zhilongwei/wavein` and **Contents: write** permission. After both image
+variants are available, the workflow dispatches WaveIn's compatibility tests.
